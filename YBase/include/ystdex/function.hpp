@@ -80,12 +80,26 @@ public:
 template<typename>
 struct mk_plist;
 
+#if __cpp_noexcept_function_type >= 201510L
 #define YB_Impl_Functional_ptuple_spec(_exp, _p, _e) \
-	template<typename _tRet, _exp typename... _tParams ynoexcept_param(ne)> \
-	struct mk_plist<_tRet _p (_tParams... YPP_Args _e) ynoexcept_qual(ne)> \
+	template<typename _tRet, _exp typename... _tParams> \
+	struct mk_plist<_tRet _p (_tParams... YPP_Args _e) noexcept(false)> \
+	{ \
+		using type = empty_base<_tParams...>; \
+	}; \
+	template<typename _tRet, _exp typename... _tParams> \
+	struct mk_plist<_tRet _p (_tParams... YPP_Args _e) noexcept(true)> \
 	{ \
 		using type = empty_base<_tParams...>; \
 	};
+#else
+#define YB_Impl_Functional_ptuple_spec(_exp, _p, _e) \
+	template<typename _tRet, _exp typename... _tParams> \
+	struct mk_plist<_tRet _p (_tParams... YPP_Args _e)> \
+	{ \
+		using type = empty_base<_tParams...>; \
+	};
+#endif
 
 YB_Impl_Functional_ptuple_spec(, , )
 YB_Impl_Functional_ptuple_spec(, (*), )
@@ -103,12 +117,26 @@ struct mk_plist<std::function<_fSig>> : mk_plist<_fSig>
 template<typename>
 struct ret_of;
 
+#if __cpp_noexcept_function_type >= 201510L
 #define YB_Impl_Functional_ret_spec(_exp, _p, _e) \
-	template<typename _tRet, _exp typename... _tParams ynoexcept_param(ne)> \
-	struct ret_of<_tRet _p (_tParams... YPP_Args _e) ynoexcept_qual(ne)> \
+	template<typename _tRet, _exp typename... _tParams> \
+	struct ret_of<_tRet _p (_tParams... YPP_Args _e) noexcept(false)> \
+	{ \
+		using type = _tRet; \
+	}; \
+	template<typename _tRet, _exp typename... _tParams> \
+	struct ret_of<_tRet _p (_tParams... YPP_Args _e) noexcept(true)> \
 	{ \
 		using type = _tRet; \
 	};
+#else
+#define YB_Impl_Functional_ret_spec(_exp, _p, _e) \
+	template<typename _tRet, _exp typename... _tParams> \
+	struct ret_of<_tRet _p (_tParams... YPP_Args _e)> \
+	{ \
+		using type = _tRet; \
+	};
+#endif
 
 #define YB_Impl_Functional_ret_spec_f(_e) \
 	YB_Impl_Functional_ret_spec(, , _e) \

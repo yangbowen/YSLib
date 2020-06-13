@@ -451,6 +451,7 @@ template<typename _type>
 struct is_referenceable_function : false_
 {};
 
+/*
 template<typename _tRes, typename... _tParams ynoexcept_param(ne)>
 struct is_referenceable_function<_tRes(_tParams...) ynoexcept_qual(ne)> : true_
 {};
@@ -459,6 +460,29 @@ template<typename _tRes, typename... _tParams ynoexcept_param(ne)>
 struct is_referenceable_function<_tRes(_tParams..., ...) ynoexcept_qual(ne)>
 	: true_
 {};
+*/
+
+#if __cpp_noexcept_function_type >= 201510L
+template<typename _tRes, typename... _tParams>
+struct is_referenceable_function<_tRes(_tParams...) noexcept(false)> : true_
+{};
+template<typename _tRes, typename... _tParams>
+struct is_referenceable_function<_tRes(_tParams...) noexcept(true)> : true_
+{};
+template<typename _tRes, typename... _tParams>
+struct is_referenceable_function<_tRes(_tParams..., ...) noexcept(false)> : true_
+{};
+template<typename _tRes, typename... _tParams>
+struct is_referenceable_function<_tRes(_tParams..., ...) noexcept(true)> : true_
+{};
+#else
+template<typename _tRes, typename... _tParams>
+struct is_referenceable_function<_tRes(_tParams...)> : true_
+{};
+template<typename _tRes, typename... _tParams>
+struct is_referenceable_function<_tRes(_tParams..., ...)> : true_
+{};
+#endif
 
 } // namespace details;
 

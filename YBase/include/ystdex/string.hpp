@@ -1635,7 +1635,7 @@ extract(std::basic_istream<_tChar, _tTraits>& is,
 	std::basic_string<_tChar, _tTraits, _tAlloc>& str, _func f)
 {
 	typename std::basic_string<_tChar, _tTraits, _tAlloc>::size_type n(0);
-	auto st(std::ios_base::goodbit);
+	std::ios_base::iostate st(std::ios_base::goodbit);
 
 	if(const auto k
 		= typename std::basic_istream<_tChar, _tTraits>::sentry(is, true))
