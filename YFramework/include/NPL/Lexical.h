@@ -11,13 +11,13 @@
 /*!	\file Lexical.h
 \ingroup NPL
 \brief NPL 词法处理。
-\version r1935
+\version r2317
 \author FrankHB <frankhb1989@gmail.com>
 \since build 335
 \par 创建时间:
 	2012-08-03 23:04:28 +0800
 \par 修改时间:
-	2020-05-13 13:03 +0800
+	2020-05-30 10:14 +0800
 \par 文本编码:
 	UTF-8
 \par 模块名称:
@@ -29,10 +29,11 @@
 #define YF_INC_NPL_Lexical_h_ 1
 
 #include "YModules.h"
-#include YFM_NPL_NPL // for std::string, byte, CHAR_MIN;
-#include YFM_YSLib_Adaptor_YTextBase // for YSLib::begin, YSLib::end,
-//	YSLib::function, YSLib::list, YSLib::set, YSLib::string, YSLib::string_view,
-//	YSLib::vector, YSLib::make_string_view;
+#include YFM_NPL_NPL // for byte, CHAR_MIN, ystdex::unwrap_ref_decay_t,
+//	ystdex::remove_reference_t, ystdex::detected_or_t, YSLib::lref, YSLib::pair;
+#include YFM_YSLib_Adaptor_YTextBase // for YSLib::pmr, YSLib::begin,
+//	YSLib::end, YSLib::function, YSLib::list, YSLib::set, YSLib::shared_ptr,
+//	YSLib::string, YSLib::string_view, YSLib::vector;
 #include <cctype> // for std::isgraph;
 
 namespace NPL
@@ -48,8 +49,14 @@ using YSLib::end;
 using YSLib::function;
 //! \since build 329
 using YSLib::list;
+//! \since build 842
+using YSLib::lref;
+//! \since build 598
+using YSLib::pair;
 //! \since build 806
 using YSLib::set;
+//! \since build 788
+using YSLib::shared_ptr;
 //! \since build 329
 using YSLib::string;
 //! \since build 659
@@ -60,8 +67,43 @@ using YSLib::vector;
 /*!
 \brief 词素列表：待被处理为记号短字符串列表。
 \since build 889
+
+词素列表是词素的序列，支持高效的 splice 操作以便分阶段分析。
+语法分析可使用其它形式的列表，其元素可以包含词素或其它附加信息。
 */
-using LexemeList = list<yimpl(std::string)>;
+using LexemeList = list<string>;
+
+//! \since build 891
+//@{
+//! \brief 可选的源代码名称。
+using SourceName = shared_ptr<string>;
+
+
+/*!
+\brief 源代码位置。
+*/
+struct YF_API SourceLocation final
+{
+	size_t Line = 0;
+	size_t Column = 0;
+
+	DefDeCtor(SourceLocation)
+	SourceLocation(size_t line, size_t col)
+		: Line(line), Column(col)
+	{}
+	DefDeCopyAssignment(SourceLocation)
+
+	PDefH(void, Newline, ) ynothrow
+		ImplUnseq(++Line, Column = 0)
+
+	PDefH(void, Step, ) ynothrow
+		ImplExpr(++Column)
+};
+
+
+//! \brief 源代码信息。
+using SourceInformation = pair<SourceName, SourceLocation>;
+//@}
 
 
 /*!
@@ -87,7 +129,6 @@ public:
 	size_t Length = 0;
 	//@}
 
-public:
 	//! \post <tt>Prefix.empty() && sequence.empty()</tt> 。
 	DefDeCtor(UnescapeContext)
 	DefDeCopyMoveCtorAssignment(UnescapeContext)
@@ -165,7 +206,7 @@ class YF_API LexicalAnalyzer
 {
 private:
 	/*!
-	\brief 反转移上下文：储存反转义中间结果。
+	\brief 反转义上下文：储存反转义中间结果。
 	\note 若前缀非空表示正在处理反转义。
 	\since build 545
 	*/
@@ -175,38 +216,24 @@ private:
 	\note 值为空字符时表示当前不处理字面量。
 	*/
 	char ld = {};
-	/*!
-	\brief 字符解析中间结果。
-	\since build 886
-	*/
-	string cbuf{};
 
 public:
-	LexicalAnalyzer();
-	//! \since build 887
-	LexicalAnalyzer(pmr::polymorphic_allocator<yimpl(byte)> a);
+	//! \since build 889
+	DefDeCtor(LexicalAnalyzer)
 	//! \since build 546
 	DefDeCopyMoveCtorAssignment(LexicalAnalyzer)
 
 	//! \since build 886
-	DefGetter(const ynothrow, const string&, Buffer, cbuf)
-	//! \since build 886
 	DefGetter(const ynothrow, char, Delimiter, ld)
-	/*!
-	\brief 取最后取得的分隔符划分的区间位置。
-	\sa UpdateBack
-	\since build 889
-
-	假定当前已更新缓冲区最后的字符取得分隔符，取对应的缓冲区索引边界。
-	*/
-	DefGetter(const ynothrow, size_t, LastDelimited,
-		cbuf.length() - (ld != char() ? 1 : 0))
+	//! \since build 890
+	DefGetter(const ynothrow, const UnescapeContext&, UnescapeContext,
+		unescape_context)
 
 	/*!
 	\brief 过滤解析的字符。
 	\pre 参数满足以下签名和行为的要求的可调用对象。
 	\return 字符未被转义处理。
-	\since build 886
+	\since build 890
 
 	检查转义序列并处理转义序列前缀。
 	第二和第三参数分别指定反转义算法和转义序列前缀处理器；
@@ -235,10 +262,11 @@ public:
 		数据指针非空；
 		数据指定空串，或其结尾应已经添加前缀字符。
 	*/
-	template<typename _fUnescape = decltype(NPLUnescape),
+	template<class _tCharBuffer,
+		typename _fUnescape = decltype(NPLUnescape),
 		typename _fPrefixHandler = decltype(HandleBackslashPrefix)>
 	YB_ATTR_nodiscard bool
-	FilterChar(char c, _fUnescape unescape = NPLUnescape,
+	FilterChar(char c, _tCharBuffer& cbuf, _fUnescape unescape = NPLUnescape,
 		_fPrefixHandler handle_prefix = HandleBackslashPrefix)
 	{
 		// XXX: Incomplete escape sequence at end is ignored at current.
@@ -253,12 +281,11 @@ public:
 	}
 
 	/*!
-	\note 参数指定反转义算法。
+	\brief 解析单个字面量字符并添加至字符解析结果：反转义以外无视边界字符。
+	\note 参数指定缓冲区和反转义算法。
 	\warning 在同一个分析器对象上混用不等价的多种解析方法或反转义算法的结果未指定。
 	\since build 588
 	*/
-	//@{
-	//! \brief 解析单个字面量字符并添加至字符解析结果：反转义以外无视边界字符。
 	template<typename... _tParams>
 	inline void
 	ParseQuoted(char c, _tParams&&... args)
@@ -267,31 +294,15 @@ public:
 	}
 
 	/*!
-	\brief 直接添加字符。
-	\since build 763
-	*/
-	PDefH(void, ParseRaw, char c)
-		ImplExpr(cbuf += c);
-	//@}
-
-	/*!
-	\brief 字符解析中间结果预分配参数指定的空间。
-	\since build 887
-	*/
-	PDefH(void, Reserve, size_t n)
-		ImplExpr(cbuf.reserve(n))
-
-	/*!
 	\brief 更新缓冲区最后的单个字节的字符解析结果。
-	\pre 断言：缓冲区非空。
 	\invariant 缓冲区长度。
-	\return 参数是引号。
-	\note 假定缓冲区最后一个字符等于参数。
+	\return 第二参数是引号。
+	\note 第一参数指定缓冲区的字符。第二参数指定要更新的值。
 	\note 解析时处理引号和空白符。空格和回车符以外的空白符解析为空格。
-	\since build 889
+	\since build 890
 	*/
 	bool
-	UpdateBack(char);
+	UpdateBack(char&, char);
 };
 
 
@@ -385,6 +396,361 @@ YB_ATTR_nodiscard inline PDefH(bool, IsDelimiter, char c) ynothrow
 */
 YB_ATTR_nodiscard YF_API LexemeList
 Decompose(string_view, LexemeList::allocator_type = {});
+
+
+/*!	\defgroup LexicalParsers Lexical Parsers
+\brief 词法解析器。
+\since build 891
+
+词法解析器是满足以下以非 const 左值调用的类类型仿函数。
+词法解析器对应的兼容函数类型是与其具有相同签名和返回类型的可调用函数类型，
+	且具有成员函数 GetResult 取结果，其返回类型是解析结果类型的 const 左值引用类型；
+	其中，解析结果类型是成员类型 ParseResult ，
+	或当此成员不存在时默认为 LexemeList 。
+词法解析器还可具有以下的的可选接口：
+可选的 ParseResult 成员类型指定解析结果类型，应为对象类型；
+可选的 reserve 成员函数，接受一个 size_t 值表示提示预留缓存的大小。
+若可选的接口不存在，则不应存在同名的成员声明。
+*/
+
+
+/*!
+\ingroup metafunctions
+\since build 891
+*/
+//@{
+//! \brief 成员 ParseResult 类型。
+template<class _tParser>
+using MemberParseResult = typename _tParser::ParseResult;
+
+/*!
+\brief 取参数类型对应的解析器类类型。
+\note 结果应为 SContext 解析器。
+\sa LexicalParsers
+*/
+template<typename _fParse>
+using ParserClassOf
+	= ystdex::remove_reference_t<ystdex::unwrap_ref_decay_t<_fParse>>;
+
+/*!
+\brief 取解析器结果类型。
+
+若参数指定的解析器类型具有 ParseResult 成员类型，则作为结果类型；
+	否则，使用 LexemeList 作为结果类型。
+*/
+template<typename _fParse>
+using ParseResultOf = ystdex::detected_or_t<LexemeList, MemberParseResult,
+	ParserClassOf<_fParse>>;
+
+/*!
+\brief 泛型解析器结果返回类型。
+
+SContext 解析器的成员函数 GetResult 的返回类型。
+*/
+template<typename _fParse>
+using GParserResult = const ParseResultOf<_fParse>&;
+//@}
+
+
+//! \warning 非虚析构。
+//@{
+/*!
+\brief 具有字符缓冲的字符解析器基类。
+\since build 890
+*/
+class BufferedByteParserBase
+{
+private:
+	lref<LexicalAnalyzer> lexer_ref;
+	//! \brief 字符解析中间结果。
+	string buffer{};
+
+public:
+	BufferedByteParserBase(LexicalAnalyzer& lexer,
+		pmr::polymorphic_allocator<yimpl(byte)> a = {})
+		: lexer_ref(lexer), buffer(a)
+	{}
+
+	DefDeCopyMoveCtorAssignment(BufferedByteParserBase)
+
+	DefGetter(const ynothrow, const string&, Buffer, buffer)
+	DefGetter(ynothrow, string&, BufferRef, buffer)
+	DefGetter(const ynothrow, LexicalAnalyzer&, LexerRef, lexer_ref)
+	DefGetter(ynothrow, char&, BackRef, buffer.back())
+
+	/*!
+	\brief 取最后取得的分隔符划分的区间位置。
+	\sa UpdateBack
+	\since build 889
+
+	假定当前已更新缓冲区最后的字符取得分隔符，取对应的缓冲区索引边界。
+	*/
+	PDefH(size_t, QueryLastDelimited, char ld) const ynothrow
+		ImplRet(buffer.length() - (ld != char() ? 1 : 0))
+
+	/*!
+	\brief 字符解析中间结果预分配参数指定的空间。
+	\since build 887
+	*/
+	PDefH(void, reserve, size_t n)
+		ImplExpr(buffer.reserve(n))
+
+	friend DefSwap(ynothrow, BufferedByteParserBase,
+		std::swap(_x.lexer_ref, _y.lexer_ref), std::swap(_x.buffer, _y.buffer))
+};
+
+
+/*!
+\ingroup LexicalParsers
+\brief 字节解析器。
+\since build 889
+
+添加单个 char 作为字节数据的解析器。
+解析结果为取字符串列表并记号化的记号列表。
+记号化提取字符串列表中的记号，排除字面量，分解其余字符串为记号列表。
+记号化的记号列表以词素列表类型表示，不保存词素外的信息。
+*/
+class YF_API ByteParser : private BufferedByteParserBase
+{
+public:
+	//! \since build 891
+	using ParseResult = vector<string>;
+
+private:
+	//! \invariant <tt>!(lexemes.empty() && update_current)</tt> 。
+	//@{
+	//! \since build 891
+	mutable ParseResult lexemes{};
+	//! \since build 890
+	bool update_current = {};
+	//@}
+
+public:
+	ByteParser(LexicalAnalyzer& lexer,
+		pmr::polymorphic_allocator<yimpl(byte)> a = {})
+		: BufferedByteParserBase(lexer, a), lexemes(a)
+	{}
+	//! \since build 890
+	//@{
+	ByteParser(const ByteParser& parse)
+		: BufferedByteParserBase(parse),
+		lexemes(parse.lexemes, parse.lexemes.get_allocator()),
+		update_current(parse.update_current)
+	{}
+	DefDeMoveCtor(ByteParser)
+
+	//! \brief 复制赋值：使用参数的分配器构造的副本和交换操作。
+	PDefHOp(ByteParser&, =, const ByteParser& parse)
+		ImplRet(ystdex::copy_and_swap(*this, parse))
+	DefDeMoveAssignment(ByteParser)
+	//@}
+
+	/*!
+	\brief 解析单个字符并更新字符解析结果。
+	\note 记录引号并忽略空字符。
+	\note 参数指定词法分析的反转义算法。
+	\warning 同一个分析器对象上使用不等价的多种解析方法或反转义算法的结果未指定。
+	*/
+	template<typename... _tParams>
+	inline void
+	operator()(char c, _tParams&&... args)
+	{
+		auto& lexer(GetLexerRef());
+
+		Update(lexer.FilterChar(c, GetBufferRef(), yforward(args)...)
+			&& lexer.UpdateBack(GetBackRef(), c));
+	}
+
+	//! \since build 890
+	//@{
+	using BufferedByteParserBase::GetBuffer;
+	using BufferedByteParserBase::GetBufferRef;
+	using BufferedByteParserBase::GetLexerRef;
+	//@}
+	/*!
+	\brief 取解析结果。
+	\since build 891
+
+	根据参数保存的词法分析器中间结果更新：添加字符串列表的最后一项并记号化。
+	*/
+	DefGetter(const ynothrow, const ParseResult&, Result, lexemes)
+
+private:
+	//! \since build 890
+	//@{
+	YB_FLATTEN void
+	Update(bool);
+
+public:
+	using BufferedByteParserBase::reserve;
+
+	friend DefSwap(ynothrow, ByteParser,
+		swap(static_cast<BufferedByteParserBase&>(_x),
+		static_cast<BufferedByteParserBase&>(_y)), swap(_x.lexemes, _y.lexemes),
+		std::swap(_x.update_current, _y.update_current))
+	//@}
+};
+
+
+/*!
+\ingroup LexicalParsers
+\brief 记录源代码位置的字节解析器。
+\since build 891
+
+处理逻辑和 ByteParser 一致的解析器，但解析结果保存元素在源代码位置。
+*/
+class YF_API SourcedByteParser : private BufferedByteParserBase
+{
+public:
+	using ParseResult = vector<pair<SourceLocation, string>>;
+
+private:
+	//! \invariant <tt>!(lexemes.empty() && update_current)</tt> 。
+	//@{
+	mutable ParseResult lexemes{};
+	bool update_current = {};
+	//@}
+	SourceLocation source_location{0, 0};
+
+public:
+	SourcedByteParser(LexicalAnalyzer& lexer,
+		pmr::polymorphic_allocator<yimpl(byte)> a = {})
+		: BufferedByteParserBase(lexer, a), lexemes(a)
+	{}
+	SourcedByteParser(const SourcedByteParser& parse)
+		: BufferedByteParserBase(parse),
+		lexemes(parse.lexemes, parse.lexemes.get_allocator()),
+		update_current(parse.update_current),
+		source_location(parse.source_location)
+	{}
+	DefDeMoveCtor(SourcedByteParser)
+
+	PDefHOp(SourcedByteParser&, =, const SourcedByteParser& parse)
+		ImplRet(ystdex::copy_and_swap(*this, parse))
+	DefDeMoveAssignment(SourcedByteParser)
+
+	template<typename... _tParams>
+	inline void
+	operator()(char c, _tParams&&... args)
+	{
+		auto& lexer(GetLexerRef());
+
+		Update(lexer.FilterChar(c, GetBufferRef(), yforward(args)...)
+			&& lexer.UpdateBack(GetBackRef(), c));
+		if(c != '\n')
+			source_location.Step();
+		else
+			source_location.Newline();
+	}
+
+	using BufferedByteParserBase::GetBuffer;
+	using BufferedByteParserBase::GetBufferRef;
+	using BufferedByteParserBase::GetLexerRef;
+	DefGetter(const ynothrow, const ParseResult&, Result, lexemes)
+	DefGetter(const ynothrow, const SourceLocation&, SourceLocation,
+		source_location)
+
+private:
+	YB_FLATTEN void
+	Update(bool);
+
+public:
+	using BufferedByteParserBase::reserve;
+
+	friend DefSwap(ynothrow, SourcedByteParser,
+		swap(static_cast<BufferedByteParserBase&>(_x),
+		static_cast<BufferedByteParserBase&>(_y)), swap(_x.lexemes, _y.lexemes),
+		std::swap(_x.update_current, _y.update_current),
+		std::swap(_x.source_location, _y.source_location))
+};
+
+
+/*!
+\ingroup LexicalParsers
+\brief 保存分隔符中间结果字节解析器。
+\sa ByteParser
+\since build 890
+
+处理逻辑和 ByteParser 一致的解析器，但解析添加字符时先保存中间结果。
+保存的中间结果是分隔符（非转义的引号）出现的位置的有序列表。
+*/
+class YF_API DelimitedByteParser : private BufferedByteParserBase
+{
+private:
+	//! \brief 保存的字符解析中间结果。
+	vector<size_t> qlist{};
+
+public:
+	DelimitedByteParser(LexicalAnalyzer& lexer,
+		pmr::polymorphic_allocator<yimpl(byte)> a)
+		: BufferedByteParserBase(lexer, a), qlist(a)
+	{}
+	DelimitedByteParser(const DelimitedByteParser& parse)
+		: BufferedByteParserBase(parse),
+		qlist(parse.qlist, parse.qlist.get_allocator())
+	{}
+
+	DefDeMoveCtor(DelimitedByteParser)
+
+	//! \brief 复制赋值：使用参数的分配器构造的副本和交换操作。
+	PDefHOp(DelimitedByteParser&, =, const DelimitedByteParser& parse)
+		ImplRet(ystdex::copy_and_swap(*this, parse))
+	DefDeMoveAssignment(DelimitedByteParser)
+
+	/*!
+	\brief 解析单个字符并添加至字符解析结果。
+	\note 记录引号并忽略空字符。
+	\note 参数指定词法分析的反转义算法。
+	\warning 同一个分析器对象上使用不等价的多种解析方法或反转义算法的结果未指定。
+	*/
+	template<typename... _tParams>
+	inline void
+	operator()(char c, _tParams&&... args)
+	{
+		auto& lexer(GetLexerRef());
+
+		if(lexer.FilterChar(c, GetBufferRef(), yforward(args)...))
+		{
+			if(lexer.UpdateBack(GetBackRef(), c))
+				qlist.push_back(QueryLastDelimited(lexer.GetDelimiter()));
+		}
+	}
+
+	using BufferedByteParserBase::GetBuffer;
+	using BufferedByteParserBase::GetBufferRef;
+	using BufferedByteParserBase::GetLexerRef;
+	DefGetter(const ynothrow, const vector<size_t>&, Quotes, qlist)
+	/*!
+	\brief 取解析结果。
+
+	根据参数保存的词法分析器中间结果更新：取字符串列表并记号化。
+	*/
+	LexemeList
+	GetResult() const;
+
+	/*!
+	\brief 把拆分非分隔符为边界的字符串后的词素列表添加到参数指定的列表。
+	\note 第一参数指定列表，最后一个参数指定源字符串。
+	\sa Decompose
+	*/
+	//@{
+	//! \note 第二参数指定直接分隔，第三参数指定源字符串。
+	static void
+	DecomposeString(LexemeList&, bool, string_view);
+	//! \note 字符串中第一个字符是引号时，视为字符串以分隔符为边界。
+	static PDefH(void, DecomposeString, LexemeList& lst, string_view sv)
+		ImplExpr(DecomposeString(lst, sv.front() != '\'' && sv.front() != '"',
+			sv))
+	//@}
+
+	using BufferedByteParserBase::reserve;
+
+	friend DefSwap(ynothrow, DelimitedByteParser,
+		swap(static_cast<BufferedByteParserBase&>(_x),
+		static_cast<BufferedByteParserBase&>(_y)),
+		swap(_x.qlist, _y.qlist))
+};
+//@}
 
 } // namespace NPL;
 
