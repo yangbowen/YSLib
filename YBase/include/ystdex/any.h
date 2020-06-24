@@ -839,8 +839,8 @@ private:
 	//@}
 	using rebound_ator_type = rebind_alloc_t<ator_type, byte>;
 	//! \since build 887
-	static_assert(is_in_place_storable<ator_owner>(),
-		"Insufficient storage for the owner pointer type found.");
+	//static_assert(is_in_place_storable<ator_owner>(),
+	//	"Insufficient storage for the owner pointer type found.");
 
 public:
 	using base = value_handler<ator_owner>;

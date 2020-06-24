@@ -513,8 +513,9 @@
       <EnforceTypeConversionRules>true</EnforceTypeConversionRules>
       <ObjectFileName>$(IntDir)%(RelativeDir)</ObjectFileName>
       <ConformanceMode>true</ConformanceMode>
-      <LanguageStandard>stdcpplatest</LanguageStandard>
+      <LanguageStandard>stdcpp17</LanguageStandard>
       <MultiProcessorCompilation>true</MultiProcessorCompilation>
+      <AdditionalOptions>/ZH:SHA_256 /Zc:__cplusplus /Zc:strictStrings /utf-8 /validate-charset /Zc:preprocessor %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='release|Win32'">
@@ -525,8 +526,9 @@
       <EnforceTypeConversionRules>true</EnforceTypeConversionRules>
       <ObjectFileName>$(IntDir)%(RelativeDir)</ObjectFileName>
       <ConformanceMode>true</ConformanceMode>
-      <LanguageStandard>stdcpplatest</LanguageStandard>
+      <LanguageStandard>stdcpp17</LanguageStandard>
       <MultiProcessorCompilation>true</MultiProcessorCompilation>
+      <AdditionalOptions>/ZH:SHA_256 /Zc:__cplusplus /Zc:strictStrings /utf-8 /validate-charset /Zc:preprocessor %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
   </ItemDefinitionGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
